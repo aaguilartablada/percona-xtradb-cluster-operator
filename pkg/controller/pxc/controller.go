@@ -327,17 +327,14 @@ func (r *ReconcilePerconaXtraDBCluster) Reconcile(_ context.Context, request rec
 		if o.CompareVersionWith(version.Version) != 0 {
 			imageName = strings.Split(imageName, ":")[0] + ":" + o.Spec.CRVersion
 		}
-		var initResources *api.PodResources
+		var initResources corev1.ResourceRequirements
 		if o.CompareVersionWith("1.6.0") >= 0 {
 			initResources = o.Spec.PXC.Resources
 		}
 		if len(o.Spec.InitImage) > 0 {
 			imageName = o.Spec.InitImage
 		}
-		initC, err := statefulset.EntrypointInitContainer(imageName, initResources, o.Spec.PXC.ContainerSecurityContext, o.Spec.PXC.ImagePullPolicy)
-		if err != nil {
-			return reconcile.Result{}, err
-		}
+		initC := statefulset.EntrypointInitContainer(imageName, initResources, o.Spec.PXC.ContainerSecurityContext, o.Spec.PXC.ImagePullPolicy)
 		inits = append(inits, initC)
 	}
 
@@ -542,17 +539,14 @@ func (r *ReconcilePerconaXtraDBCluster) deploy(cr *api.PerconaXtraDBCluster) err
 		if cr.CompareVersionWith(version.Version) != 0 {
 			imageName = strings.Split(imageName, ":")[0] + ":" + cr.Spec.CRVersion
 		}
-		var initResources *api.PodResources
+		var initResources corev1.ResourceRequirements
 		if cr.CompareVersionWith("1.6.0") >= 0 {
 			initResources = cr.Spec.PXC.Resources
 		}
 		if len(cr.Spec.InitImage) > 0 {
 			imageName = cr.Spec.InitImage
 		}
-		initC, err := statefulset.EntrypointInitContainer(imageName, initResources, cr.Spec.PXC.ContainerSecurityContext, cr.Spec.PXC.ImagePullPolicy)
-		if err != nil {
-			return err
-		}
+		initC := statefulset.EntrypointInitContainer(imageName, initResources, cr.Spec.PXC.ContainerSecurityContext, cr.Spec.PXC.ImagePullPolicy)
 		inits = append(inits, initC)
 	}
 
@@ -805,21 +799,9 @@ func (r *ReconcilePerconaXtraDBCluster) createService(cr *api.PerconaXtraDBClust
 func (r *ReconcilePerconaXtraDBCluster) reconcileConfigMap(cr *api.PerconaXtraDBCluster) error {
 	stsApp := statefulset.NewNode(cr)
 	ls := stsApp.Labels()
-	limitMemory := ""
-	requestMemory := ""
+	limitMemory := cr.Spec.PXC.Resources.Limits.Memory().String()
+	requestMemory := cr.Spec.PXC.Resources.Requests.Memory().String()
 
-	if cr.Spec.PXC.Resources != nil {
-		if cr.Spec.PXC.Resources.Limits != nil {
-			if cr.Spec.PXC.Resources.Limits.Memory != nil {
-				limitMemory = cr.Spec.PXC.Resources.Limits.Memory.String()
-			}
-		}
-		if cr.Spec.PXC.Resources.Requests != nil {
-			if cr.Spec.PXC.Resources.Requests.Memory != nil {
-				requestMemory = cr.Spec.PXC.Resources.Requests.Memory.String()
-			}
-		}
-	}
 	if cr.CompareVersionWith("1.3.0") >= 0 {
 		if len(limitMemory) > 0 || len(requestMemory) > 0 {
 			configMap, err := config.NewAutoTuneConfigMap(cr, "auto-"+ls["app.kubernetes.io/instance"]+"-"+ls["app.kubernetes.io/component"])

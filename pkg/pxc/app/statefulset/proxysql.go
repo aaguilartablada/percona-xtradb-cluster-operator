@@ -2,7 +2,6 @@ package statefulset
 
 import (
 	"errors"
-	"fmt"
 
 	api "github.com/percona/percona-xtradb-cluster-operator/pkg/apis/pxc/v1"
 	app "github.com/percona/percona-xtradb-cluster-operator/pkg/pxc/app"
@@ -113,6 +112,7 @@ func (c *Proxy) AppContainer(spec *api.PodSpec, secrets string, cr *api.PerconaX
 			},
 		},
 		SecurityContext: spec.ContainerSecurityContext,
+		Resources:       spec.Resources,
 	}
 	if cr.CompareVersionWith("1.9.0") >= 0 {
 		fvar := true
@@ -145,21 +145,10 @@ func (c *Proxy) AppContainer(spec *api.PodSpec, secrets string, cr *api.PerconaX
 		}
 	}
 
-	res, err := app.CreateResources(spec.Resources)
-	if err != nil {
-		return appc, fmt.Errorf("create resources error: %v", err)
-	}
-	appc.Resources = res
-
 	return appc, nil
 }
 
 func (c *Proxy) SidecarContainers(spec *api.PodSpec, secrets string, cr *api.PerconaXtraDBCluster) ([]corev1.Container, error) {
-	res, err := app.CreateResources(spec.SidecarResources)
-	if err != nil {
-		return nil, fmt.Errorf("create sidecar resources error: %v", err)
-	}
-
 	pxcMonit := corev1.Container{
 		Name:            "pxc-monit",
 		Image:           spec.Image,
@@ -169,7 +158,7 @@ func (c *Proxy) SidecarContainers(spec *api.PodSpec, secrets string, cr *api.Per
 			"-on-change=/usr/bin/add_pxc_nodes.sh",
 			"-service=$(PXC_SERVICE)",
 		},
-		Resources: res,
+		Resources: spec.SidecarResources,
 		Env: []corev1.EnvVar{
 			{
 				Name:  "PXC_SERVICE",
@@ -209,7 +198,7 @@ func (c *Proxy) SidecarContainers(spec *api.PodSpec, secrets string, cr *api.Per
 			"-on-change=/usr/bin/add_proxysql_nodes.sh",
 			"-service=$(PROXYSQL_SERVICE)",
 		},
-		Resources: res,
+		Resources: spec.SidecarResources,
 		Env: []corev1.EnvVar{
 			{
 				Name:  "PROXYSQL_SERVICE",
@@ -335,11 +324,7 @@ func (c *Proxy) PMMContainer(spec *api.PMMSpec, secrets string, cr *api.PerconaX
 	ct.Env = append(ct.Env, pmmEnvs...)
 	if cr.CompareVersionWith("1.2.0") >= 0 {
 		ct.Env = append(ct.Env, dbEnvs...)
-		res, err := app.CreateResources(spec.Resources)
-		if err != nil {
-			return nil, fmt.Errorf("create resources error: %v", err)
-		}
-		ct.Resources = res
+		ct.Resources = spec.Resources
 	} else {
 		ct.Env = append(ct.Env, dbArgsEnv...)
 	}
