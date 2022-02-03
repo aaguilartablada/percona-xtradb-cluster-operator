@@ -4,6 +4,9 @@ import (
 	"context"
 	"time"
 
+	"k8s.io/apimachinery/pkg/labels"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+
 	"github.com/pkg/errors"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -69,6 +72,9 @@ func (r *ReconcilePerconaXtraDBClusterRestore) restorePVC(cr *api.PerconaXtraDBC
 		if err != nil {
 			return errors.Wrap(err, "get pod status")
 		}
+		if err = k8s.PodContainerError(*pod); err != nil {
+			return errors.Wrap(err, "job pod error")
+		}
 		if pod.Status.Phase == corev1.PodRunning {
 			break
 		}
@@ -101,11 +107,30 @@ func (r *ReconcilePerconaXtraDBClusterRestore) createJob(job *batchv1.Job) error
 	for {
 		time.Sleep(time.Second * 1)
 
+		pods := &corev1.PodList{}
+		ls := map[string]string{
+			"job-name": job.Name,
+		}
+		err = r.client.List(context.TODO(), pods, &client.ListOptions{
+			Namespace:     job.Namespace,
+			LabelSelector: labels.SelectorFromSet(ls),
+		})
+		if err != nil {
+			return errors.Wrap(err, "get job pod")
+		}
+
+		for _, pod := range pods.Items {
+			if err = k8s.PodContainerError(pod); err != nil {
+				return errors.Wrap(err, "job pod error")
+			}
+		}
+
 		checkJob := batchv1.Job{}
 		err := r.client.Get(context.TODO(), types.NamespacedName{Name: job.Name, Namespace: job.Namespace}, &checkJob)
 		if err != nil && !k8serrors.IsNotFound(err) {
 			return errors.Wrap(err, "get job status")
 		}
+
 		for _, cond := range checkJob.Status.Conditions {
 			if cond.Status != corev1.ConditionTrue {
 				continue
