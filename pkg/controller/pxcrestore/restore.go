@@ -104,7 +104,6 @@ func (r *ReconcilePerconaXtraDBClusterRestore) createJob(job *batchv1.Job) error
 		return errors.Wrap(err, "create job")
 	}
 
-	var errMsg string
 	for i := 0; i < int(*job.Spec.BackoffLimit); i++ {
 		time.Sleep(time.Second * 1)
 
@@ -140,10 +139,9 @@ func (r *ReconcilePerconaXtraDBClusterRestore) createJob(job *batchv1.Job) error
 			case batchv1.JobComplete:
 				return nil
 			case batchv1.JobFailed:
-				errMsg = cond.Message
-				continue
+				return errors.New(cond.Message)
 			}
 		}
 	}
-	return errors.New(errMsg)
+	return errors.New("failed to create job")
 }
