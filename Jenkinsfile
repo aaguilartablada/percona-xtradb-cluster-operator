@@ -33,7 +33,7 @@ void pushLogFile(String FILE_NAME) {
         sh """
             S3_PATH=s3://percona-jenkins-artifactory-public/\$JOB_NAME/\$(git rev-parse --short HEAD)
             aws s3 ls \$S3_PATH/${LOG_FILE_NAME} || :
-            aws s3 cp --quiet ${LOG_FILE_PATH} \$S3_PATH/${LOG_FILE_NAME} || :
+            aws s3 cp --content-type text/plain --quiet ${LOG_FILE_PATH} \$S3_PATH/${LOG_FILE_NAME} || :
         """
     }
 }
@@ -66,9 +66,12 @@ testsReportMap  = [:]
 testsResultsMap = [:]
 
 void makeReport() {
+    def wholeTestAmount=sh(script: 'cat e2e-tests/run | grep "|| fail"| wc -l', , returnStdout: true).trim()
+    def startedTestAmount = testsReportMap.size()
     for ( test in testsReportMap ) {
         TestsReport = TestsReport + "\r\n| ${test.key} | ${test.value} |"
     }
+    TestsReport = TestsReport + "\r\n| We run $startedTestAmount out of $wholeTestAmount|"
 }
 
 void setTestsresults() {
@@ -109,9 +112,11 @@ void runTest(String TEST_NAME, String CLUSTER_PREFIX) {
             retryCount++
             return false
         }
+        finally {
+            pushLogFile(TEST_NAME)
+            echo "The $TEST_NAME test was finished!"
+        }
     }
-    pushLogFile(TEST_NAME)
-    echo "The $TEST_NAME test was finished!"
 }
 
 void installRpms() {
@@ -122,9 +127,9 @@ void installRpms() {
     '''
 }
 
-def skipBranchBulds = true
+def skipBranchBuilds = true
 if ( env.CHANGE_URL ) {
-    skipBranchBulds = false
+    skipBranchBuilds = false
 }
 
 pipeline {
@@ -145,7 +150,7 @@ pipeline {
         stage('Prepare') {
             when {
                 expression {
-                    !skipBranchBulds
+                    !skipBranchBuilds
                 }
             }
             steps {
@@ -193,7 +198,7 @@ pipeline {
         stage('Build docker image') {
             when {
                 expression {
-                    !skipBranchBulds
+                    !skipBranchBuilds
                 }
             }
             steps {
@@ -220,7 +225,7 @@ pipeline {
         stage('GoLicenseDetector test') {
             when {
                 expression {
-                    !skipBranchBulds
+                    !skipBranchBuilds
                 }
             }
             steps {
@@ -247,7 +252,7 @@ pipeline {
         stage('GoLicense test') {
             when {
                 expression {
-                    !skipBranchBulds
+                    !skipBranchBuilds
                 }
             }
             steps {
@@ -281,7 +286,7 @@ pipeline {
         stage('Run tests for operator') {
             when {
                 expression {
-                    !skipBranchBulds
+                    !skipBranchBuilds
                 }
             }
             options {
@@ -368,6 +373,13 @@ pipeline {
                         ShutdownCluster('bigdata')
                     }
                 }
+                stage('E2E CrossSite') {
+                    steps {
+                        CreateCluster('cross-site')
+                        runTest('cross-site', 'cross-site')
+                        ShutdownCluster('cross-site')
+                    }
+                }
             }
         }
     }
@@ -376,7 +388,13 @@ pipeline {
             script {
                 setTestsresults()
                 if (currentBuild.result != null && currentBuild.result != 'SUCCESS') {
-                    slackSend channel: '#cloud-dev-ci', color: '#FF0000', message: "[${JOB_NAME}]: build ${currentBuild.result}, ${BUILD_URL} owner: @${AUTHOR_NAME}"
+
+                    try {
+                        slackSend channel: "@${AUTHOR_NAME}", color: '#FF0000', message: "[${JOB_NAME}]: build ${currentBuild.result}, ${BUILD_URL} owner: @${AUTHOR_NAME}"
+                    }
+                    catch (exc) {
+                        slackSend channel: '#cloud-dev-ci', color: '#FF0000', message: "[${JOB_NAME}]: build ${currentBuild.result}, ${BUILD_URL} owner: @${AUTHOR_NAME}"
+                    }
                 }
                 if (env.CHANGE_URL) {
                     for (comment in pullRequest.comments) {
